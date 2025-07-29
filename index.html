@@ -61,51 +61,89 @@ footer{margin-top:18px;font-size:.78rem;color:var(--sub);text-align:center}
 <footer>接口来源：claim.hyperlane.foundation</footer>
 
 <script>
-const API='/api/proxy?address=';   // 通过本地代理避免 403
+/* ------------------ 常量 ------------------ */
+const API = '/api/proxy?address=';   // 本地代理，避免 403
 
-const btn=document.getElementById('queryBtn');
-const textarea=document.getElementById('addrInput');
-const prog=document.getElementById('progress');
-const table=document.getElementById('resultTable');
-const tbody=table.querySelector('tbody');
+/* ------------------ DOM ------------------ */
+const btn   = document.getElementById('queryBtn');
+const ta    = document.getElementById('addrInput');
+const prog  = document.getElementById('progress');
+const table = document.getElementById('resultTable');
+const tbody = table.querySelector('tbody');
 
-function showProgress(done,total){
-  prog.textContent=`${done}/${total}`;
+/* ------------------ 工具 ------------------ */
+function showProgress(done, total) {
+  prog.textContent = `${done}/${total}`;
 }
 
-async function checkAddr(addr){
-  try{
-    const r=await fetch(API+addr.trim());
-    const j=await r.json();
-    return r.ok && j?.response?.isEligible===true;
-  }catch{
+/**
+ * 调用代理接口，返回:
+ * true  -> 符合
+ * false -> 不符合
+ * null  -> 失败 / 被挑战
+ */
+async function checkAddr(addr) {
+  try {
+    const r  = await fetch(API + addr.trim());
+    // HTTP 非 2xx
+    if (!r.ok) return null;
+
+    const ct = r.headers.get('content-type') || '';
+    if (!ct.includes('application/json')) {
+      // 被 Vercel challenge，返回 HTML
+      await r.text();
+      return null;
+    }
+    const j = await r.json();
+    if (j?.response) return j.response.isEligible === true;
+    return null;
+  } catch {
     return null;
   }
 }
 
-btn.addEventListener('click',async()=>{
-  const list=Array.from(
-    new Set(textarea.value.split(/[\s,;\n\r]+/).filter(x=>/^0x[0-9a-fA-F]{40}$/.test(x)))
+/* ------------------ 主逻辑 ------------------ */
+btn.addEventListener('click', async () => {
+  // 1. 收集地址
+  const list = Array.from(
+    new Set(
+      ta.value
+        .split(/[\s,;\n\r]+/)
+        .filter(x => /^0x[0-9a-fA-F]{40}$/.test(x))
+    )
   );
-  if(!list.length){alert('请至少输入一个有效地址');return;}
+  if (!list.length) {
+    alert('请至少输入一个有效地址');
+    return;
+  }
 
-  btn.disabled=true;showProgress(0,list.length);
-  tbody.innerHTML='';table.style.display='table';
+  // 2. 初始化 UI
+  btn.disabled = true;
+  showProgress(0, list.length);
+  tbody.innerHTML = '';
+  table.style.display = 'table';
 
-  let done=0;
-  for(const [i,addr] of list.entries()){
-    const ok=await checkAddr(addr);
-    const row=document.createElement('tr');
-    row.innerHTML=`
-      <td>${i+1}</td>
+  // 3. 顺序查询（如需更快可改并发）
+  let done = 0;
+  for (const [idx, addr] of list.entries()) {
+    const ok  = await checkAddr(addr);
+    const row = document.createElement('tr');
+    row.innerHTML = `
+      <td>${idx + 1}</td>
       <td>${addr}</td>
-      <td class="${ok===true?'ok':ok===false?'err':''}">
-        ${ok===true?'✅ 符合':ok===false?'❌ 不符合':'⚠️ 失败'}
+      <td class="${ok === true ? 'ok' : ok === false ? 'err' : ''}">
+        ${ok === true ? '✅ 符合'
+          : ok === false ? '❌ 不符合'
+          : '⚠️ 失败'}
       </td>`;
     tbody.appendChild(row);
-    showProgress(++done,list.length);
+
+    showProgress(++done, list.length);
   }
-  btn.disabled=false;prog.textContent='完成';
+
+  // 4. 结束
+  btn.disabled = false;
+  prog.textContent = '完成';
 });
 </script>
 </body>
